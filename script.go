@@ -43,6 +43,32 @@ var (
 	scriptSHA1s = make(map[opType]string)
 )
 
+// 检查是否支持 Function 功能
+func checkSupportFunction(ctx context.Context, rdb redis.UniversalClient) bool {
+	_, err := rdb.FunctionStats(ctx).Result()
+	if err != nil {
+		log.Debug(ctx, "redis FUNCTION not supported", zap.Error(err))
+		return false
+	}
+	return true
+}
+
+// 检查函数是否存在
+func checkFunctionExists(ctx context.Context, rdb redis.UniversalClient, libName string) (bool, error) {
+	res, err := rdb.Do(ctx, "FUNCTION", "LIST", "LIBRARYNAME", libName).Result()
+	if err != nil {
+		return false, err
+	}
+	libs, _ := res.([]interface{})
+	return len(libs) > 0, nil
+}
+
+// 注册并替换函数
+func registerAndReplaceFunction(ctx context.Context, rdb redis.UniversalClient, code string) error {
+	_, err := rdb.Do(ctx, "FUNCTION", "LOAD", "REPLACE", code).Result()
+	return err
+}
+
 func tryInjectCode() {
 	ctx := utils.Trace.CtxStart(context.Background(), "tryInjectCode")
 	defer utils.Trace.CtxEnd(ctx)
@@ -70,24 +96,7 @@ func tryInjectCode() {
 	log.Warn(ctx, "Failed to load Redis functions or scripts; will use EVAL on every call")
 }
 
-func checkSupportFunction(ctx context.Context, rdb redis.UniversalClient) bool {
-	_, err := rdb.FunctionStats(ctx).Result()
-	if err != nil {
-		log.Debug(ctx, "redis FUNCTION not supported", zap.Error(err))
-		return false
-	}
-	return true
-}
-
-func checkFunctionExists(ctx context.Context, rdb redis.UniversalClient, libName string) (bool, error) {
-	res, err := rdb.Do(ctx, "FUNCTION", "LIST", "LIBRARYNAME", libName).Result()
-	if err != nil {
-		return false, err
-	}
-	libs, _ := res.([]interface{})
-	return len(libs) > 0, nil
-}
-
+// 尝试注入function
 func tryInjectFunctions(ctx context.Context, rdb redis.UniversalClient) bool {
 	for op, meta := range scriptMetas {
 		exists, err := checkFunctionExists(ctx, rdb, meta.name)
@@ -96,7 +105,7 @@ func tryInjectFunctions(ctx context.Context, rdb redis.UniversalClient) bool {
 			return false
 		}
 		if !exists {
-			if err := registerFunction(ctx, rdb, meta.functionDef); err != nil {
+			if err := registerAndReplaceFunction(ctx, rdb, meta.functionDef); err != nil {
 				log.Error(ctx, "Register function failed", zap.String("op", string(op)), zap.Error(err))
 				return false
 			}
@@ -105,11 +114,7 @@ func tryInjectFunctions(ctx context.Context, rdb redis.UniversalClient) bool {
 	return true
 }
 
-func registerFunction(ctx context.Context, rdb redis.UniversalClient, code string) error {
-	_, err := rdb.Do(ctx, "FUNCTION", "LOAD", "REPLACE", code).Result()
-	return err
-}
-
+// 尝试注入script
 func tryInjectScripts(ctx context.Context, rdb redis.UniversalClient) bool {
 	for op, meta := range scriptMetas {
 		sha, err := rdb.ScriptLoad(ctx, meta.scriptDef).Result()
