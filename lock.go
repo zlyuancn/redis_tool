@@ -36,8 +36,9 @@ func AutoLock(ctx context.Context, lockKey string, ttl time.Duration) (unlock Ke
 		return nil, nil, err
 	}
 	if !ok {
-		log.Error(ctx, "AutoLock set lock fail. TooMany", zap.String("key", lockKey))
-		return nil, nil, LockIsUsedByAnother
+		err = LockIsUsedByAnother
+		log.Error(ctx, "AutoLock set lock fail.", zap.String("key", lockKey), zap.Error(err))
+		return nil, nil, err
 	}
 
 	oneUnlock := int32(0)
@@ -54,7 +55,7 @@ func AutoLock(ctx context.Context, lockKey string, ttl time.Duration) (unlock Ke
 		}
 		if !ok {
 			err = LockIsUsedByAnother
-			log.Error(ctx, "Unlock fail.", zap.String("key", lockKey))
+			log.Error(ctx, "Unlock fail.", zap.String("key", lockKey), zap.Error(err))
 			return err
 		}
 		return nil
@@ -88,8 +89,9 @@ func Lock(ctx context.Context, lockKey string, lockTime time.Duration) (string, 
 		return "", err
 	}
 	if !ok {
-		log.Error(ctx, "Lock set lock fail. TooMany", zap.String("key", lockKey))
-		return "", LockIsUsedByAnother
+		err = LockIsUsedByAnother
+		log.Error(ctx, "Lock set lock fail.", zap.String("key", lockKey), zap.Error(err))
+		return "", err
 	}
 
 	return checkCode, nil
@@ -104,7 +106,7 @@ func UnLock(ctx context.Context, lockKey, checkCode string) error {
 	}
 	if !ok {
 		err = LockIsUsedByAnother
-		log.Error(ctx, "Unlock fail.", zap.String("key", lockKey))
+		log.Error(ctx, "Unlock fail.", zap.String("key", lockKey), zap.Error(err))
 		return err
 	}
 	return nil
@@ -118,7 +120,7 @@ func RenewLock(ctx context.Context, lockKey, checkCode string, ttl time.Duration
 		return err
 	}
 	if !ok {
-		err := LockIsUsedByAnother
+		err = LockIsUsedByAnother
 		log.Error(ctx, "RenewLock fail.", zap.String("key", lockKey), zap.Error(err))
 		return err
 	}
@@ -133,7 +135,7 @@ func CheckLockCheckCode(ctx context.Context, lockKey, checkCode string) error {
 	}
 	v, err := rdb.Get(ctx, lockKey).Result()
 	if err != nil {
-		log.Error(ctx, "CheckLockCheckCode call Get fail.", zap.Error(err))
+		log.Error(ctx, "CheckLockCheckCode call Get fail.", zap.String("key", lockKey), zap.Error(err))
 		return err
 	}
 	if checkCode != v {
